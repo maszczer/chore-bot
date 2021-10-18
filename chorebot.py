@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 
 UTIME_LAST = 0              # Unix time of last chore assignment
 UTIME_TARGET = 0                  # Unix time of next chore assignment
-ROTS = [0]                  # Group-indexed list of chore rotation state
+ROTS = []                   # Group-indexed list of chore rotation state
 LOGFILE = None              # Logfile file object
 STATEFILE = None            # Statefile file object
 S_MIN = 60                  # Seconds in a minute
@@ -81,7 +81,7 @@ def writeLog(text,level=0):
     else:
         lst = "   "
 
-    tstamp = datetime.strftime(datetime.now(),"%Y/%m/%d %H:%M:$S")
+    tstamp = datetime.strftime(datetime.now(),"%Y/%m/%d %H:%M:%S")
 
     LOGFILE.write(f"[{lst}] <{tstamp}> "+text+"\n")
     LOGFILE.flush()
@@ -104,35 +104,47 @@ def loadState():
     global UTIME_LAST, ROTS
 
     lines = STATEFILE.readlines()
-    UTIME_LAST = int(lines[0])
+    UTIME_LAST = float(lines[0].strip())
     for k,l in enumerate(lines[1:None]):
-        ROTS[k] = l
+        ROTS.append(int(l.strip()))
 
     writeLog("Ran loadState().")
 
 # Write state to state file. Inverse of loadState().
 def writeState():
 
-    STATEFILE.write(f"{UTIME_LAST}\n")
-    for r in ROTS:
-        STATEFILE.write(f"{r}\n")
+    global STATEFILE
 
+    STATEFILE.close()
+    STATEFILE = open("state.txt","w+")
+
+    STATEFILE.write(f"{UTIME_LAST}\n")
+    for k,r in enumerate(ROTS):
+        STATEFILE.write(f"{r}")
+        if k != len(ROTS)-1:
+            STATEFILE.write("\n")
+
+    STATEFILE.flush()
     writeLog("Ran writeState().")
     
 # Assign chores
 def assignChores():
+
+    global UTIME_LAST
     
     # Wipe chore assignments from people
     for pp in range(len(PEOPLE)):
         PEOPLE[pp].choreCommon = Chore("None",0)
         PEOPLE[pp].choreGroup = Chore("None",0)
 
-    # Loop through chore groups
+    # Pad chore groups
     chores_local = CHORES
+
+    # Loop through chore groups
     for gi, gc in enumerate(chores_local):
 
         # Rotate chores in group
-        chores_local[gi] = rotate(gc,ROTS[gi]%len(ROTS[gi]))
+        chores_local[gi] = rotate(gc,ROTS[gi]%len(CHORES[gi]))
 
         # if common group
         if gi == 0:
@@ -141,8 +153,8 @@ def assignChores():
             for pi in range(len(PEOPLE)):
                 prev_task = PEOPLE[pi].choreGroup
                 task = chores_local[gi][pi]
-                PEOPLE[pi].choreGroup = task
-                if prev_task is not None:
+                PEOPLE[pi].choreCommon = task
+                if prev_task.name is not "None":
                     writeLog(f"In assignChores(): {PEOPLE[pi].name} already had common chore {prev_task.name}. It was overwritten by {task.name}.",1)
                 else:
                     writeLog(f"In assignChores(): {PEOPLE[pi].name} was assigned common chore {task.name}.")
@@ -150,12 +162,14 @@ def assignChores():
         else:
 
             # Loop through people in group
+            k = 0
             for pi in range(len(PEOPLE)):
                 if PEOPLE[pi].group == gi:
                     prev_task = PEOPLE[pi].choreGroup
-                    task = chores_local[gi][pi]
+                    task = chores_local[gi][k]
+                    k += 1
                     PEOPLE[pi].choreGroup = task
-                    if prev_task is not None:
+                    if prev_task.name is not "None":
                         writeLog(f"In assignChores(): {PEOPLE[pi].name} already had group chore {prev_task.name}. It was overwritten by {task.name}.",1)
                     else:
                         writeLog(f"In assignChores(): {PEOPLE[pi].name} was assigned group chore {task.name}.")
@@ -165,6 +179,8 @@ def assignChores():
         sms = f"CHOREBOT: {pp.name}, your common chore for this week is: {pp.choreCommon.name}.\nYour floor group chore is: {pp.choreGroup.name}."
         send(sms,pp.number,dummy=DEBUG)
         writeLog(f"SMS sent with DEBUG {DEBUG}: "+sms)
+
+    UTIME_LAST = time.time()
 
     writeLog("Ran assignChores().")
 
@@ -183,7 +199,7 @@ def checkTime():
     if diff < EVENT_THRES:
         response = {"event":True,"sleep":EVENT_PERIOD/2}
     else:
-        response = {"event":False,"sleep":diff/2}
+        response = {"event":False,"sleep":diff*0.9}
     
     writeLog(f"In checkTime(): Checked for time at {now}. Diff = {diff}. Event = {response['event']}. Sleep = {response['sleep']}.")
     
@@ -199,7 +215,7 @@ def getNextUtime():
     t_nextweek_start = t_thisweek_start + timedelta(days=7)
     t_thisweek_start_unix = time.mktime(t_thisweek_start.timetuple())
     t_nextweek_start_unix = time.mktime(t_nextweek_start.timetuple())
-    t_now_unix = time.mktime(t_now.timetuple())
+    t_now_unix = time.time() #time.mktime(t_now.timetuple())
 
     writeLog("Ran getNextUtime().")
 
@@ -222,7 +238,7 @@ def setTarget():
 
     # Error: either now is before last assignment or some unknown error.
     else:
-        writeLog(f"In setTarget(): Error setting UTIME_TARGET. UTIME_TARGET = {UTIME_TARGET}. now = {now}. this = {this}. next = {next}.",-1)
+        writeLog(f"In setTarget(): Error setting UTIME_TARGET. UTIME_TARGET = {UTIME_TARGET}. now = {now}. UTIME_LAST = {UTIME_LAST}. this = {this}. next = {next}.",-1)
 
     writeLog("Ran setTarget().")
 
@@ -233,7 +249,7 @@ def setTarget():
 
 def __main__(debug=True,fname_log=None):
 
-    global LOGFILE, DEBUG, ADMIN, UTIME_LAST, ROTS, CHORES, PEOPLE
+    global LOGFILE, STATEFILE, DEBUG, ADMIN, UTIME_LAST, ROTS, CHORES, PEOPLE
 
     print("Beginning main")
     DEBUG = debug
@@ -243,6 +259,9 @@ def __main__(debug=True,fname_log=None):
         fname_log = "{tstamp}.log".format(tstamp=datetime.strftime(datetime.now(),"%Y_%m_%d_%H_%M_%S"))
     LOGFILE = open(fname_log,"w")
 
+    # Open statefile
+    STATEFILE = open("state.txt","r+")
+
     # Open chores and people files for read-in
     file_chores = open("chores.csv","r")
     file_people = open("people.csv","r")
@@ -251,12 +270,13 @@ def __main__(debug=True,fname_log=None):
 
     # Load Chores
     max_group = 0
+    chores_all = []
     for l in lines_chores:
         lsp = l.split(',')
-        chores_all = Chore(lsp[0],lsp[1])
-        if lsp[1] > max_group:
-            max_group = lsp[1]
-    for g in range(len(max_group)+1):
+        chores_all.append(Chore(lsp[0],int(lsp[1])))
+        if int(lsp[1]) > max_group:
+            max_group = int(lsp[1])
+    for g in range(max_group+1):
         CHORES.append([])
     for cc in chores_all:
         CHORES[cc.group].append(cc)
@@ -264,7 +284,15 @@ def __main__(debug=True,fname_log=None):
     # Load People
     for l in lines_people:
         lsp = l.split(',')
-        PEOPLE.append(Person(lsp[0],lsp[1],group=lsp[2]))
+        PEOPLE.append(Person(lsp[0],lsp[1],group=int(lsp[2])))
+
+    # Pad chores
+    for cli in range(len(CHORES)):
+        for pi in range(len(PEOPLE)):
+            try:
+                CHORES[cli][pi] = CHORES[cli][pi]
+            except:
+                CHORES[cli].append(Chore("None",0))
 
     # Set admin
     ADMIN = Person("Matthew Szczerba", "+18109229593")
@@ -283,7 +311,9 @@ def __main__(debug=True,fname_log=None):
         if response["event"]:
             assignChores()
             ROTS = [k+1 for k in ROTS]
+            time.sleep(1)
             setTarget()
+            writeState()
 
         time.sleep(response["sleep"])
 
@@ -294,11 +324,14 @@ def __main__(debug=True,fname_log=None):
 ###########
 
 def _test_checkTime():
+    global LOGFILE
     LOGFILE = open("test.log","w")
     timer = {'event':False,'sleep':1}
     while timer['event'] is not True:
         time.sleep(timer["sleep"])
-        timer = checkTime(1634298194)
+        timer = checkTime()
+        print(f"Checked time. Sleeping {timer['sleep']}")
+    print(f"Reached target {UTIME_TARGET} at {time.time()}!")
 
 def _test_getNextUtime():
     t_thisweek_start_unix, t_nextweek_start_unix, t_now_unix = getNextUtime()
@@ -313,5 +346,6 @@ def _test_getNextUtime():
 ############
 
 if __name__ == '__main__':
-    
-    _test_getNextUtime()
+    UTIME_TARGET = 1634531400
+    EVENT_THRES = 5
+    _test_checkTime()
