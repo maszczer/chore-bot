@@ -289,7 +289,6 @@ def __main__(debug=True,fname_log=None):
 
 
 
-
 ###########
 ## TESTS ##
 ###########
@@ -316,56 +315,3 @@ def _test_getNextUtime():
 if __name__ == '__main__':
     
     _test_getNextUtime()
-
-    '''
-    Debug = True
-
-    file_chores = open("chores.csv","r")
-    file_people = open("people.csv","r")
-    file_log = open("log.csv","a")
-    file_last_issue = open("last.txt","r")
-
-    lines_chores = file_chores.readlines()
-    lines_people = file_people.readlines()
-
-    # Load Chores
-    chores = []
-    for l in lines_chores:
-        lsp = l.split(',')
-        chores.append(Chore(lsp[0],lsp[1]))
-
-    # Load People
-    people = []
-    for l in lines_people:
-        lsp = l.split(',')
-        people.append(Person(lsp[0],lsp[1],group=lsp[2]))
-
-    # Get the unix time of last chore issue event from file
-    t_last = int(file_last_issue.read())
-    file_last_issue.close()
-
-    # Main loop
-    write_log(file_log,"Starting main loop")
-    file_log.flush()
-    while(True):
-
-        # Measure current time and get start of week time (unix for both)
-        t_weekStart, t_now = getWeekStart()
-
-        # If the last chore issue event was before the start of the present week, 
-        # issue chores and update most recent chore issue event
-        if (t_last < t_weekStart):
-            people = assign_chores(chores,people,file_log,debug=Debug)
-            t_last = t_now
-            file_last_issue = open("last.txt","w")
-            file_last_issue.write(str(int(t_last)))
-            file_last_issue.close()
-
-            people = rotate(people,1)
-        else:
-            print("Chores already sent this week.")
-
-        # Wait ten minutes
-        time.sleep(60*10)
-        '''
-    
