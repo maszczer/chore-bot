@@ -315,6 +315,7 @@ def __main__(debug=True,fname_log=None):
             setTarget()
             writeState()
 
+        writeLog(f"Sleeping {response['sleep']}.")
         time.sleep(response["sleep"])
 
 
