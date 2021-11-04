@@ -204,7 +204,7 @@ def checkTime():
     this, next, now = getNextUtime()
     diff = UTIME_TARGET-now
 
-    if diff <= 0:
+    if diff < 0:
         writeLog(f"In checkTime(): Checked for time {UTIME_TARGET} at time {now}. Diff = {diff}.",1)
         diff = next-now
         return({"event":True,"sleep":diff*0.9})
@@ -222,6 +222,14 @@ def checkTime():
 
 def getNextUtime():
 
+    periodstart_second = 0
+    t_now = datetime.now()
+    dt = timedelta(seconds=t_now.second, microseconds=t_now.microsecond)
+
+    t_thisweek_start = t_now - dt
+    t_nextweek_start = t_thisweek_start + timedelta(minutes=1,seconds=0,microseconds=0)
+
+    '''
     weekstart_hour = 8
     t_now = datetime.now()
     dt = timedelta(days=t_now.weekday(),hours=t_now.hour,minutes=t_now.minute,seconds=t_now.second,microseconds=t_now.microsecond)
@@ -233,6 +241,7 @@ def getNextUtime():
     
     t_thisweek_start = t_now - dt + timedelta(hours=weekstart_hour)
     t_nextweek_start = t_thisweek_start + timedelta(days=7)
+    '''
 
     t_thisweek_start_unix = time.mktime(t_thisweek_start.timetuple())
     t_nextweek_start_unix = time.mktime(t_nextweek_start.timetuple())
@@ -275,7 +284,8 @@ def __main__(debug=True,fname_log=None):
 
     print("Beginning main")
 
-    DEBUG = debug
+    # Debug always true for fast mode
+    DEBUG = True
 
     # Open logfile
     if not fname_log:
