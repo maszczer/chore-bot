@@ -1,5 +1,4 @@
 import os, time, base64, json
-import numpy as np
 from datetime import datetime, timedelta
 
 from google.auth.transport.requests import Request
