@@ -1,10 +1,12 @@
-# Fast version of chorebot. FOR TESTING PURPOSES ONLY
-# Assigns chores once every minute.
-
-from twilio.rest import Client
-import os, time
+import os, time, base64, json
 import numpy as np
 from datetime import datetime, timedelta
+
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from email.mime.text import MIMEText
 
 #############
 ## GLOBALS ##
@@ -15,10 +17,6 @@ UTIME_TARGET = 0            # Unix time of next chore assignment
 ROTS = []                   # Group-indexed list of chore rotation state
 LOGFILE = None              # Logfile file object
 STATEFILE = None            # Statefile file object
-S_MIN = 60                  # Seconds in a minute
-S_HOUR = S_MIN*60           # Seconds in an hour
-S_DAY = S_HOUR*24           # Seconds in a day
-S_WEEK = S_DAY*7            # Seconds in a week
 EVENT_THRES = 1             # Threshold number of seconds before an event to consider the event as "now".
 CHORES = []                 # List of chores
 PEOPLE = []                 # List of people (no duplicate elements)
@@ -29,7 +27,10 @@ NUM_PEOPLE = 0              # Number of people
 NUM_CHORES_GROUP = []       # Number of chores per group
 NUM_PEOPLE_GROUP = []       # Number of people per group
 ADMIN = None                # instance of class Person who is notified when fatal errors occur.
+CREDS = None                # Google oauth credentials object
+SELF_ADDRESS = None
 DEBUG = True
+
 
 
 #############
@@ -38,9 +39,9 @@ DEBUG = True
 
 # Person class
 class Person():
-    def __init__(self,name,number,choreCommon=None,choreGroup=None,group=None):
+    def __init__(self,name,email,choreCommon=None,choreGroup=None,group=None):
         self.name = name
-        self.number = number
+        self.email = email
         self.choreCommon = choreCommon
         self.choreGroup = choreGroup
         self.group = group
@@ -58,18 +59,62 @@ class Chore():
 ## UTILS ##
 ###########
 
-# Send SMS
-def send(text,number,dummy=True):
+# Authenticate
+def authenticate():
+    global CREDS
+    
+    writeLog("authenticate() called.")
+    
+    scopes = ['https://mail.google.com/']
+    creds = None
+
+    try:
+        # The file token.json stores the user's access and refresh tokens, and is
+        # created automatically when the authorization flow completes for the first
+        # time.
+        if os.path.exists('token.json'):
+            creds = Credentials.from_authorized_user_file('token.json', scopes)
+        # If there are no (valid) credentials available, let the user log in.
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            else:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    'credentials.json', scopes)
+                creds = flow.run_local_server(port=0)
+            # Save the credentials for the next run
+            with open('token.json', 'w') as token:
+                token.write(creds.to_json())
+
+        CREDS = creds
+
+    except Exception as e:
+        writeLog("Exception occurred in authenticate():{expt}".format(expt=str(e)),level=-1)  
+    
+
+# Send Message using Google email
+def send(subject,body,people,dummy=True):
     if dummy:
-        print("SMS Output:",text)
+        print("{s}: {b}".format(s=subject,b=body))
     else:
-        account_sid = os.environ['TWILIO_ACCOUNT_SID']
-        auth_token = os.environ['TWILIO_AUTH_TOKEN']
-        client = Client(account_sid,auth_token)
-        client.messages.create(\
-            body = text,
-            from_ = "+17028196468",
-            to = number)
+
+        authenticate()
+        service = build('gmail', 'v1', credentials=CREDS)
+        
+        addresses = []
+        for p in people:
+            addresses.append(p.email)
+        address_str = ", ".join(addresses)
+
+        message = MIMEText(body)
+        message['To'] = address_str
+        message['From'] = SELF_ADDRESS
+        message['Subject'] = subject
+        encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
+
+        create_message = {'raw': encoded_message}
+        
+        service.users().messages().send(userId="me", body=create_message).execute()
 
 # Rotate list
 def rotate(list, k):
@@ -93,7 +138,7 @@ def writeLog(text,level=0):
     LOGFILE.flush()
 
     if level == -1:
-        send("CHOREBOT: A fatal error occured. " + f"[{lst}] <{tstamp}> "+text,ADMIN.number,dummy=DEBUG)
+        send("CHOREBOT: A fatal error occured. " + f"[{lst}] <{tstamp}> "+text,ADMIN,dummy=DEBUG)
         exit()
 
 # Load chore rotation indices
@@ -186,11 +231,19 @@ def assignChores():
         pp.choreGroup = chores_local[pp.group][chore_group_index[pp.group]]
         chore_group_index[pp.group] += 1
 
-    # Loop through people to send SMS
+    # Construct body text
+    body_text = "Here are the weekly chore assignments.\n\n"
     for pp in PEOPLE:
-        sms = f"CHOREBOT: {pp.name}, your common chore for this week is: {pp.choreCommon.name}.\nYour floor group chore is: {pp.choreGroup.name}."
-        send(sms,pp.number,dummy=DEBUG)
-        writeLog(f"SMS sent with DEBUG {DEBUG}: "+sms)
+        body_text += f'''{pp.name}
+    Common chore: {pp.choreCommon.name}
+    Group chore: {pp.choreGroup.name}\n\n'''
+    
+    # Construct subject line
+    subject_text = "CHOREBOT: Weekly Assignments"
+
+    send(subject=subject_text,body=body_text,people=PEOPLE,dummy=DEBUG)
+    writeLog(f"Email sent with DEBUG {DEBUG}: "+body_text)
+    
 
     UTIME_LAST = time.time()
 
@@ -271,11 +324,17 @@ def setTarget():
 def __main__(debug=True,fname_log=None):
 
     global LOGFILE, STATEFILE, DEBUG, ADMIN, UTIME_LAST, ROTS, \
-    CHORES, PEOPLE, NUM_CHORES, NUM_PEOPLE, NUM_GROUPS, NUM_PEOPLE_GROUP, NUM_CHORES_GROUP
+    CHORES, PEOPLE, NUM_CHORES, NUM_PEOPLE, NUM_GROUPS, NUM_PEOPLE_GROUP, NUM_CHORES_GROUP, SELF_ADDRESS
 
     print("Beginning main")
 
-    DEBUG = debug
+    # Load config settings
+    file = open("config.json")
+    config = json.load(file)
+    file.close()
+    DEBUG = debug #config['debug']
+    ADMIN = Person(config["admin"]["name"],config["admin"]["email"])
+    SELF_ADDRESS = config["bot_email_address"]
 
     # Open logfile
     if not fname_log:
@@ -331,9 +390,8 @@ def __main__(debug=True,fname_log=None):
         else:
             pass
 
-    # Set admin
-    ADMIN = Person("Matthew Szczerba", "+18109229593")
-    send("CHOREBOT: Chorebot.py has started.",ADMIN.number,dummy=DEBUG)
+    # Send admin start message
+    send(subject="chorebot start alert",body="CHOREBOT: Chorebot.py has started.",people=[ADMIN],dummy=DEBUG)
 
     # Load state from file
     loadState()
@@ -428,13 +486,5 @@ def _test_getNextUtime():
 ############
 
 if __name__ == '__main__':
-
-    #_test_states()
-
-    #_test_getNextUtime()
-
-    UTIME_TARGET = time.time() - 3
-    EVENT_THRES = 5
-    _test_checkTime()
 
     pass
