@@ -1,0 +1,8 @@
+{
+    "debug":false,
+    "bot_email_address":"",
+    "admin":{
+        "name":"",
+        "email":""
+    }
+}
