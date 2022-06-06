@@ -3,6 +3,7 @@ __pycache__
 __pycache__/*
 chores.csv
 people.csv
+state.txt
 token.json
 credentials.json
 *.log
