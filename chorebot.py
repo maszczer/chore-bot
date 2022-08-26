@@ -137,7 +137,7 @@ def writeLog(text,level=0):
     LOGFILE.flush()
 
     if level == -1:
-        send("CHOREBOT: A fatal error occured. " + f"[{lst}] <{tstamp}> "+text,ADMIN,dummy=DEBUG)
+        send("ChoreBot Error", "CHOREBOT: A fatal error occured. " + f"[{lst}] <{tstamp}> "+text,ADMIN,dummy=DEBUG)
         exit()
 
 # Load chore rotation indices
@@ -487,3 +487,4 @@ def _test_getNextUtime():
 if __name__ == '__main__':
 
     pass
+
